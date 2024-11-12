@@ -1,0 +1,370 @@
+{
+  "pipelineSpec": {
+    "components": {
+      "comp-exit-handler-1": {
+        "dag": {
+          "tasks": {
+            "make-predictions": {
+              "cachingOptions": {
+                "enableCache": true
+              },
+              "componentRef": {
+                "name": "comp-make-predictions"
+              },
+              "dependentTasks": [
+                "training-model"
+              ],
+              "inputs": {
+                "artifacts": {
+                  "input_model": {
+                    "taskOutputArtifact": {
+                      "outputArtifactKey": "output_model",
+                      "producerTask": "training-model"
+                    }
+                  }
+                },
+                "parameters": {
+                  "gcs_bucket_name": {
+                    "runtimeValue": {
+                      "constantValue": {
+                        "stringValue": "demo_vertext_01"
+                      }
+                    }
+                  },
+                  "proccesed_blob_name": {
+                    "runtimeValue": {
+                      "constantValue": {
+                        "stringValue": "prod_info/prediction_ISA.csv"
+                      }
+                    }
+                  },
+                  "source_blob_name": {
+                    "runtimeValue": {
+                      "constantValue": {
+                        "stringValue": "prod_info/ISA_Historical_Info_Prod.csv"
+                      }
+                    }
+                  }
+                }
+              },
+              "taskInfo": {
+                "name": "Making Predictions has finished"
+              }
+            },
+            "preprocess-data": {
+              "cachingOptions": {
+                "enableCache": true
+              },
+              "componentRef": {
+                "name": "comp-preprocess-data"
+              },
+              "inputs": {
+                "parameters": {
+                  "gcs_bucket_name": {
+                    "runtimeValue": {
+                      "constantValue": {
+                        "stringValue": "demo_vertext_01"
+                      }
+                    }
+                  },
+                  "proccesed_blob_name": {
+                    "runtimeValue": {
+                      "constantValue": {
+                        "stringValue": "output_info/processed_ISA_Historical_Info_2002_2024.csv"
+                      }
+                    }
+                  },
+                  "source_blob_name": {
+                    "runtimeValue": {
+                      "constantValue": {
+                        "stringValue": "raw_info/ISA_Historical_Info_2002_2024.csv"
+                      }
+                    }
+                  }
+                }
+              },
+              "taskInfo": {
+                "name": "Preprocessing Data has finished"
+              }
+            },
+            "training-model": {
+              "cachingOptions": {
+                "enableCache": true
+              },
+              "componentRef": {
+                "name": "comp-training-model"
+              },
+              "dependentTasks": [
+                "preprocess-data"
+              ],
+              "inputs": {
+                "artifacts": {
+                  "input_df": {
+                    "taskOutputArtifact": {
+                      "outputArtifactKey": "output_dataset",
+                      "producerTask": "preprocess-data"
+                    }
+                  }
+                },
+                "parameters": {
+                  "name_file_model": {
+                    "runtimeValue": {
+                      "constantValue": {
+                        "stringValue": "model_lstm"
+                      }
+                    }
+                  }
+                }
+              },
+              "taskInfo": {
+                "name": "Training Model has finished"
+              }
+            }
+          }
+        }
+      },
+      "comp-make-predictions": {
+        "executorLabel": "exec-make-predictions",
+        "inputDefinitions": {
+          "artifacts": {
+            "input_model": {
+              "artifactType": {
+                "schemaTitle": "system.Model",
+                "schemaVersion": "0.0.1"
+              }
+            }
+          },
+          "parameters": {
+            "gcs_bucket_name": {
+              "type": "STRING"
+            },
+            "proccesed_blob_name": {
+              "type": "STRING"
+            },
+            "source_blob_name": {
+              "type": "STRING"
+            }
+          }
+        }
+      },
+      "comp-preprocess-data": {
+        "executorLabel": "exec-preprocess-data",
+        "inputDefinitions": {
+          "parameters": {
+            "gcs_bucket_name": {
+              "type": "STRING"
+            },
+            "proccesed_blob_name": {
+              "type": "STRING"
+            },
+            "source_blob_name": {
+              "type": "STRING"
+            }
+          }
+        },
+        "outputDefinitions": {
+          "artifacts": {
+            "output_dataset": {
+              "artifactType": {
+                "schemaTitle": "system.Dataset",
+                "schemaVersion": "0.0.1"
+              }
+            }
+          }
+        }
+      },
+      "comp-training-model": {
+        "executorLabel": "exec-training-model",
+        "inputDefinitions": {
+          "artifacts": {
+            "input_df": {
+              "artifactType": {
+                "schemaTitle": "system.Dataset",
+                "schemaVersion": "0.0.1"
+              }
+            }
+          },
+          "parameters": {
+            "name_file_model": {
+              "type": "STRING"
+            }
+          }
+        },
+        "outputDefinitions": {
+          "artifacts": {
+            "output_model": {
+              "artifactType": {
+                "schemaTitle": "system.Model",
+                "schemaVersion": "0.0.1"
+              }
+            }
+          }
+        }
+      },
+      "comp-vertex-pipelines-notification-email": {
+        "executorLabel": "exec-vertex-pipelines-notification-email",
+        "inputDefinitions": {
+          "parameters": {
+            "pipeline_task_final_status": {
+              "type": "STRING"
+            },
+            "recipients": {
+              "type": "STRING"
+            }
+          }
+        }
+      }
+    },
+    "deploymentSpec": {
+      "executors": {
+        "exec-make-predictions": {
+          "container": {
+            "args": [
+              "--executor_input",
+              "{{$}}",
+              "--function_to_execute",
+              "make_predictions"
+            ],
+            "command": [
+              "sh",
+              "-c",
+              "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'scikit-learn' 'pandas' 'keras' 'numpy' 'tensorflow' 'joblib' 'kfp==1.8.21' && \"$0\" \"$@\"\n",
+              "sh",
+              "-ec",
+              "program_path=$(mktemp -d)\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\npython3 -m kfp.v2.components.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
+              "\nimport kfp\nfrom kfp.v2 import dsl\nfrom kfp.v2.dsl import *\nfrom typing import *\n\ndef make_predictions(input_model: Input[Model],\n                     gcs_bucket_name: str,\n                     source_blob_name: str,\n                     proccesed_blob_name: str):\n    \"\"\" Import keras model and make predictions based on csv file stored in a bucket. \"\"\"\n    from sklearn.model_selection import train_test_split\n    from joblib import dump\n    import pandas as pd\n    import numpy as np\n    import os\n    from sklearn.preprocessing import PowerTransformer\n    from sklearn.preprocessing import MinMaxScaler\n    from keras.models import Sequential, load_model\n    from keras.layers import LSTM, Dense  \n    from google.cloud import storage\n    import io    \n\n    # Crear cliente de GCS\n    client = storage.Client()\n    bucket = client.get_bucket(gcs_bucket_name)\n\n    # Descargar el archivo CSV del bucket    \n    blob = bucket.blob(source_blob_name)\n    downloaded_file = blob.download_as_bytes()\n\n    # Leer el CSV con pandas desde los bytes descargados\n    dataset_predictions = pd.read_csv(io.BytesIO(downloaded_file))\n    dataset_predictions = dataset_predictions.drop(columns=[\"Date\", \"Open\", \"High\", \"Low\"])\n\n\n    # Inicializar el escalador\n    min_max_scaler = MinMaxScaler(feature_range=(0,1))\n\n    # Ajustar el escalador a la columna 'Close' en los datos de entrenamiento\n    dataset_predictions['Close'] = min_max_scaler.fit_transform(dataset_predictions[['Close']])\n\n    print(\"Datos productivos escalados:\")\n    print(dataset_predictions['Close'].head(3))\n\n    # Cargar el modelo guardado en formato .keras\n    print(\"Inicio cargue del modelo productivo:\")\n    modelo_lstm = load_model(f\"{input_model.path}.keras\")\n    print(\"Fin del cargue del modelo productivo:\")\n\n    # Convertir los datos a un formato adecuado para la predicci\u00f3n de LSTM\n    dataset_predictions_formated = np.reshape(dataset_predictions, (1, dataset_predictions.shape[0], 1))\n    print(f\"dataset_predictions_formated: {dataset_predictions_formated.shape}\")\n\n    # Hacer la predicci\u00f3n\n    prediccion_escalada = modelo_lstm.predict(dataset_predictions_formated)\n\n    # Invertir la transformaci\u00f3n de escala (para volver a los valores originales)\n    prediccion_final = min_max_scaler.inverse_transform(prediccion_escalada)\n\n    print(f\"Predicci\u00f3n: {prediccion_final[0][0]}\")\n\n"
+            ],
+            "image": "python:3.9"
+          }
+        },
+        "exec-preprocess-data": {
+          "container": {
+            "args": [
+              "--executor_input",
+              "{{$}}",
+              "--function_to_execute",
+              "preprocess_data"
+            ],
+            "command": [
+              "sh",
+              "-c",
+              "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'pandas' 'google-cloud-storage' 'kfp==1.8.21' && \"$0\" \"$@\"\n",
+              "sh",
+              "-ec",
+              "program_path=$(mktemp -d)\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\npython3 -m kfp.v2.components.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
+              "\nimport kfp\nfrom kfp.v2 import dsl\nfrom kfp.v2.dsl import *\nfrom typing import *\n\ndef preprocess_data(\n    gcs_bucket_name: str,\n    source_blob_name: str,\n    proccesed_blob_name: str,\n    output_dataset: Output[Dataset]\n    ):\n    \"\"\"\n    Preprocessing step that downloads a CSV from GCS, processes it, and outputs the result.\n    \"\"\"\n    from google.cloud import storage\n    import pandas as pd\n    import io\n\n    # Crear cliente de GCS\n    client = storage.Client()\n    bucket = client.get_bucket(gcs_bucket_name)\n\n    # Descargar el archivo CSV del bucket    \n    blob = bucket.blob(source_blob_name)\n    downloaded_file = blob.download_as_bytes()\n\n    # Leer el CSV con pandas desde los bytes descargados\n    dataset = pd.read_csv(io.BytesIO(downloaded_file))\n\n    # Renombrar columnas espec\u00edficas\n    dataset.rename(columns={'Fecha': 'Date', \n                                '\u00daltimo': 'Close', \n                                'Apertura': 'Open', \n                                'M\u00e1ximo': 'High', \n                                'M\u00ednimo': 'Low',}, inplace=True)\n\n    # Reemplazar los puntos por guiones en la columna 'fecha'\n    dataset['Date'] = dataset['Date'].str.replace('.', '-', regex=False)\n\n    # Become Date feature from object to date format\n    dataset['Date'] = pd.to_datetime(dataset['Date'], format='%d-%m-%Y')    \n\n    # Funci\u00f3n para transformar el formato de texto a float\n    def transformar_a_float(valor):\n        valor = valor.replace('.', '')  # Eliminar los puntos de miles\n        valor = valor.replace(',', '.')  # Reemplazar la coma decimal por un punto\n        return float(valor)  # Convertir a float\n\n    # Aplicar la funci\u00f3n a la columna\n    dataset['Open'] = dataset['Open'].apply(transformar_a_float)\n    dataset['High'] = dataset['High'].apply(transformar_a_float)\n    dataset['Low'] = dataset['Low'].apply(transformar_a_float)\n    dataset['Close'] = dataset['Close'].apply(transformar_a_float)    \n\n\n    # Guardar el DataFrame transformado en un archivo CSV en memoria\n    dataset.to_csv(f\"{output_dataset.path}.csv\", index=False)\n\n"
+            ],
+            "image": "python:3.9"
+          }
+        },
+        "exec-training-model": {
+          "container": {
+            "args": [
+              "--executor_input",
+              "{{$}}",
+              "--function_to_execute",
+              "training_model"
+            ],
+            "command": [
+              "sh",
+              "-c",
+              "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'scikit-learn' 'pandas' 'keras' 'numpy' 'tensorflow' 'joblib' 'kfp==1.8.21' && \"$0\" \"$@\"\n",
+              "sh",
+              "-ec",
+              "program_path=$(mktemp -d)\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\npython3 -m kfp.v2.components.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
+              "\nimport kfp\nfrom kfp.v2 import dsl\nfrom kfp.v2.dsl import *\nfrom typing import *\n\ndef training_model(input_df: Input[Dataset],\n                   name_file_model: str,\n                   output_model: Output[Model]\n                  ):\n    from sklearn.model_selection import train_test_split\n    from joblib import dump\n    import pandas as pd\n    import numpy as np\n    import os\n    from sklearn.preprocessing import PowerTransformer\n    from sklearn.preprocessing import MinMaxScaler\n    from keras.models import Sequential\n    from keras.layers import LSTM, Dense    \n\n    dataset_transformed = pd.read_csv(f\"{input_df.path}.csv\")\n\n    # Filtrar datos de entrenamiento (2002-2022)\n    train_data = dataset_transformed[(dataset_transformed['Date'] >= '2002-01-01') & (dataset_transformed['Date'] <= '2021-12-31')]\n\n    # Filtrar datos de prueba (2023 en adelante)\n    test_data = dataset_transformed[dataset_transformed['Date'] >= '2022-01-01']\n    #print(test_data.head())\n\n    # Inicializar el escalador\n    min_max_scaler = MinMaxScaler(feature_range=(0,1))\n\n    # Ajustar el escalador a la columna 'Close' en los datos de entrenamiento\n    train_data['Close'] = min_max_scaler.fit_transform(train_data[['Close']])\n\n    print(\"Datos de entrenamiento con 'Close' escalado:\")\n    print(train_data['Close'].head(3))\n\n    dataset_train_normalized = train_data['Close'].values\n\n    dataset_test = test_data[['Close']]\n    print(\"ok training and test set filtered!!\")\n\n    # dataset_train_processed = pd.read_csv(\"/Users/michaelandr/Desktop/airflow_deployment_ml/dags/data/train/processed_training_set_ISA_Historical_Info.csv\")\n    # La red LSTM tendr\u00e1 como entrada \"time_step\" datos consecutivos, y como salida 1 dato (la predicci\u00f3n a\n    # partir de esos \"time_step\" datos). Se conformar\u00e1 de esta forma el set de entrenamiento\n    time_step = 60\n    X_train = []\n    Y_train = []\n    m = len(dataset_train_normalized)\n\n    for i in range(time_step, m):\n        # X: bloques de \"time_step\" datos: 0-time_step, 1-time_step+1, 2-time_step+2, etc\n        X_train.append(dataset_train_normalized[i-60:i])\n        Y_train.append(dataset_train_normalized[i])\n\n    X_train, Y_train = np.array(X_train), np.array(Y_train)     \n    print(\"Conversion de arrays exitosa\") \n\n    # Reshape X_train para que se ajuste al modelo en Keras\n    X_train = np.reshape(X_train, (X_train.shape[0], X_train.shape[1], 1))\n\n    # Valores iniciales\n    dim_entrada = (X_train.shape[1],1) # 60 datos de una feature\n    dim_salida = 1\n    na = 50\n\n    # Crear el modelo\n    print(\"Inicio creacion red lstm\")\n    model_lstm = Sequential()\n\n    # A\u00f1adir la capa LSTM\n    model_lstm.add(LSTM(units=na, return_sequences=True, input_shape= dim_entrada))\n    model_lstm.add(LSTM(units=na))\n\n    # A\u00f1adir una capa densa para la salida\n    model_lstm.add(Dense(dim_salida))\n\n    # Compilar el modelo\n    print(\"compilacion\")    \n    model_lstm.compile(optimizer='rmsprop', loss='mean_squared_error')\n\n    # Resumen del modelo\n    model_lstm.summary()\n\n    print(\"inicio training\")\n    # Train the model\n    model_lstm.fit(X_train, Y_train, epochs=20, batch_size=32, validation_split=0.2, verbose=1)\n    print(\"Training had finished!\")\n\n    # Guardar el modelo en el formato nativo de Keras en la ruta de salida proporcionada por KFP\n    print(output_model.path)\n    model_lstm.save(f\"{output_model.path}.keras\")\n\n    print(f\"Modelo guardado en: {output_model.path}\")\n\n"
+            ],
+            "image": "python:3.9"
+          }
+        },
+        "exec-vertex-pipelines-notification-email": {
+          "container": {
+            "args": [
+              "--type",
+              "VertexNotificationEmail",
+              "--payload",
+              ""
+            ],
+            "command": [
+              "python3",
+              "-u",
+              "-m",
+              "google_cloud_pipeline_components.container.v1.vertex_notification_email.executor"
+            ],
+            "image": "gcr.io/ml-pipeline/google-cloud-pipeline-components:1.0.24"
+          }
+        }
+      }
+    },
+    "pipelineInfo": {
+      "name": "test-pipeline-2"
+    },
+    "root": {
+      "dag": {
+        "tasks": {
+          "exit-handler-1": {
+            "componentRef": {
+              "name": "comp-exit-handler-1"
+            },
+            "taskInfo": {
+              "name": "exit-handler-1"
+            }
+          },
+          "vertex-pipelines-notification-email": {
+            "componentRef": {
+              "name": "comp-vertex-pipelines-notification-email"
+            },
+            "dependentTasks": [
+              "exit-handler-1"
+            ],
+            "inputs": {
+              "parameters": {
+                "pipeline_task_final_status": {
+                  "taskFinalStatus": {
+                    "producerTask": "exit-handler-1"
+                  }
+                },
+                "recipients": {
+                  "runtimeValue": {
+                    "constantValue": {
+                      "stringValue": "[\"michael.morapp@gmail.com\"]"
+                    }
+                  }
+                }
+              }
+            },
+            "taskInfo": {
+              "name": "vertex-pipelines-notification-email"
+            },
+            "triggerPolicy": {
+              "strategy": "ALL_UPSTREAM_TASKS_COMPLETED"
+            }
+          }
+        }
+      },
+      "inputDefinitions": {
+        "parameters": {
+          "gcp_region": {
+            "type": "STRING"
+          },
+          "project": {
+            "type": "STRING"
+          }
+        }
+      }
+    },
+    "schemaVersion": "2.0.0",
+    "sdkVersion": "kfp-1.8.21"
+  },
+  "runtimeConfig": {
+    "gcsOutputDirectory": "gs://demo_vertext_01/output_info",
+    "parameters": {
+      "gcp_region": {
+        "stringValue": "us-central1"
+      },
+      "project": {
+        "stringValue": "datapath-deploy-api-v1-434102"
+      }
+    }
+  }
+}
